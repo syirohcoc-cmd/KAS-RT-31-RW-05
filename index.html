@@ -43,7 +43,7 @@ pad=n=>String(n).padStart(2,'0'),ym=d=>d.getFullYear()+'-'+pad(d.getMonth()+1),y
 KI=['Iuran Bulanan','Jimpitan','Sumbangan','Lainnya'],KO=['Kebersihan','Keamanan','Sosial','Perbaikan','Kegiatan','Lainnya'],
 opts=(a,s)=>a.map(k=>`<option ${k==s?'selected':''}>${k}</option>`).join(''),
 tot=a=>a.reduce((r,t)=>(t.jenis=='masuk'?r.m+=+t.nominal:r.k+=+t.nominal,r),{m:0,k:0}),
-isA=()=>me.role=='admin',nm=id=>(S.warga.find(w=>w.id==id)||{}).nama||'-';
+isA=()=>me.role=='admin',canW=()=>['admin','ketua'].includes(me.role),nm=id=>(S.warga.find(w=>w.id==id)||{}).nama||'-';
 let sb,cfg,me,page='dash',chart,S={warga:[],trx:[],users:[],set:{nama_rt:'RT 01',iuran_nominal:20000,mulai:ym(new Date())}};
 function toast(m){const t=$('#t');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',3500)}
 function modal(h){$('#m').innerHTML=h?`<div class=ov onclick="if(event.target==this)modal()"><div class=box>${h}</div></div>`:''}
@@ -70,7 +70,7 @@ setInterval(async()=>{if(me&&!$('#m').innerHTML&&page!='set'){await load();rende
 /* ---------- kerangka ---------- */
 function shell(){const N={dash:['🏠','Beranda'],masuk:['⬇️','Kas Masuk'],keluar:['⬆️','Kas Keluar'],iuran:['🧾','Iuran'],warga:['👥','Warga'],laporan:['📊','Laporan'],set:['⚙️','Atur']};
 const k=isA()?Object.keys(N):me.role=='ketua'?['dash','masuk','keluar','iuran','warga','laporan']:['dash','iuran','laporan'];
-$('#app').innerHTML=`<header><b>💰 Kas ${esc(S.set.nama_rt)}</b><span><small>${esc(me.username)} · ${me.role}</small> <button class="b s m" onclick="out()">Keluar</button></span></header><nav>${k.map(x=>`<a id=n_${x} onclick="go('${x}')"><b>${N[x][0]}</b>${N[x][1]}</a>`).join('')}</nav><main id=c></main>`}
+$('#app').innerHTML=`<header><b>💰 Kas ${esc(S.set.nama_rt)}</b> <small style="opacity:.7">v2</small><span><small>${esc(me.username)} · ${me.role}</small> <button class="b s m" onclick="out()">Keluar</button></span></header><nav>${k.map(x=>`<a id=n_${x} onclick="go('${x}')"><b>${N[x][0]}</b>${N[x][1]}</a>`).join('')}</nav><main id=c></main>`}
 function go(p){page=p;render()}
 function render(){document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.id=='n_'+page));$('#c').innerHTML=pages[page]();if($('#ch'))drawChart()}
 
@@ -91,7 +91,7 @@ function drawChart(){const d=new Date(),ls=[];for(let i=5;i>=0;i--)ls.push(ym(ne
 const f=j=>ls.map(m=>S.trx.filter(t=>t.jenis==j&&t.tanggal.startsWith(m)).reduce((a,t)=>a+ +t.nominal,0));
 chart&&chart.destroy();chart=new Chart($('#ch'),{type:'bar',data:{labels:ls,datasets:[{label:'Masuk',data:f('masuk'),backgroundColor:'#16a34a'},{label:'Keluar',data:f('keluar'),backgroundColor:'#9ca3af'}]},options:{responsive:true}})}
 
-function wargaPage(){return `<div class=hd><h2>Data Warga</h2>${isA()?`<button class=b onclick="wForm()">+ Tambah</button>`:''}</div><div class=card>${S.warga.map(w=>`<div class=row><div><b>${esc(w.no_rumah)} · ${esc(w.nama)}</b> <span class=tag>${w.aktif?'Aktif':'Tidak aktif'}</span><br><small>${esc(w.alamat)} ${w.wa?`· <a href="https://wa.me/${String(w.wa).replace(/\D/g,'').replace(/^0/,'62')}" target=_blank>${esc(w.wa)}</a>`:''}</small></div>${isA()?`<span><button class="b s m" onclick="wForm('${w.id}')">Edit</button> <button class="b r m" onclick="wDel('${w.id}')">Hapus</button></span>`:''}</div>`).join('')||'<p>Belum ada warga.</p>'}</div>`}
+function wargaPage(){return `<div class=hd><h2>Data Warga</h2>${canW()?`<button class=b onclick="wForm()">+ Tambah</button>`:''}</div><div class=card>${S.warga.map(w=>`<div class=row><div><b>${esc(w.no_rumah)} · ${esc(w.nama)}</b> <span class=tag>${w.aktif?'Aktif':'Tidak aktif'}</span><br><small>${esc(w.alamat)} ${w.wa?`· <a href="https://wa.me/${String(w.wa).replace(/\D/g,'').replace(/^0/,'62')}" target=_blank>${esc(w.wa)}</a>`:''}</small></div>${canW()?`<span><button class="b s m" onclick="wForm('${w.id}')">Edit</button>${isA()?` <button class="b r m" onclick="wDel('${w.id}')">Hapus</button>`:''}</span>`:''}</div>`).join('')||'<p>Belum ada warga.</p>'}</div>`}
 function wForm(id){const w=S.warga.find(x=>x.id==id)||{aktif:true};modal(`<h3>${id?'Edit':'Tambah'} Warga</h3><form onsubmit="wSave(event,'${id||''}')"><label>Nomor rumah<input name=no_rumah value="${esc(w.no_rumah)}" required></label><label>Nama kepala keluarga<input name=nama value="${esc(w.nama)}" required></label><label>Alamat<input name=alamat value="${esc(w.alamat)}"></label><label>Nomor WhatsApp<input name=wa value="${esc(w.wa)}" inputmode=tel></label><label>Status<select name=aktif><option value=1 ${w.aktif?'selected':''}>Aktif</option><option value=0 ${w.aktif?'':'selected'}>Tidak aktif</option></select></label><button class=b>Simpan</button> <button type=button class="b s" onclick="modal()">Batal</button></form>`)}
 async function wSave(e,id){e.preventDefault();const f=Object.fromEntries(new FormData(e.target));f.aktif=f.aktif=='1';
 const{error}=await(id?sb.from('warga').update(f).eq('id',id):sb.from('warga').insert(f));if(error)return toast(error.message);modal();await load();render();toast('Tersimpan')}
