@@ -40,11 +40,11 @@ main{margin-left:190px}.cards{grid-template-columns:repeat(3,1fr)}.ov{align-item
 const $=s=>document.querySelector(s),rp=n=>'Rp '+Number(n||0).toLocaleString('id-ID'),
 esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),
 pad=n=>String(n).padStart(2,'0'),ym=d=>d.getFullYear()+'-'+pad(d.getMonth()+1),ymd=d=>ym(d)+'-'+pad(d.getDate()),
-KI=['Iuran Bulanan','Jimpitan','Sumbangan','Lainnya'],KO=['Kebersihan','Keamanan','Sosial','Perbaikan','Kegiatan','Lainnya'],
+KI=['Iuran','Iuran Bulanan','Jimpitan','Kaleng Koin Lazisnu','Sumbangan','Lainnya'],KO=['Kebersihan','Keamanan','Sosial','Perbaikan','Kegiatan','Sakit','Duka','Kaleng Koin Lazisnu','Lainnya'],
 opts=(a,s)=>a.map(k=>`<option ${k==s?'selected':''}>${k}</option>`).join(''),
 tot=a=>a.reduce((r,t)=>(t.jenis=='masuk'?r.m+=+t.nominal:r.k+=+t.nominal,r),{m:0,k:0}),
 isA=()=>me.role=='admin',canW=()=>['admin','ketua'].includes(me.role),nm=id=>(S.warga.find(w=>w.id==id)||{}).nama||'-';
-let sb,cfg,me,page='dash',chart,S={warga:[],trx:[],users:[],set:{nama_rt:'RT 01',iuran_nominal:20000,mulai:ym(new Date())}};
+let sb,cfg,me,page='dash',chart,S={warga:[],trx:[],users:[],iur:[],iw:[],set:{nama_rt:'RT 01'}};
 function toast(m){const t=$('#t');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',3500)}
 function modal(h){$('#m').innerHTML=h?`<div class=ov onclick="if(event.target==this)modal()"><div class=box>${h}</div></div>`:''}
 function months(a,b){const r=[];let[y,m]=a.split('-').map(Number);while(y+'-'+pad(m)<=b){r.push(y+'-'+pad(m));if(++m>12){m=1;y++}}return r}
@@ -63,30 +63,24 @@ async function out(){await sb.auth.signOut();location.reload()}
 async function start(){const{data:{user}}=await sb.auth.getUser();const{data}=await sb.from('profiles').select('*').eq('id',user.id).single();
 if(!data)return toast('Profil tidak ditemukan. Pastikan schema.sql sudah dijalankan.');me=data;await load();shell();render();
 if(me.role=='warga'&&!me.warga_id)toast('Akun belum ditautkan ke data warga. Hubungi bendahara.')}
-async function load(){const[w,t,s,p]=await Promise.all([all(()=>sb.from('warga').select('*').order('no_rumah')),all(()=>sb.from('transaksi').select('*').order('tanggal',{ascending:false})),sb.from('settings').select('*').eq('id',1).single(),sb.from('profiles').select('*')]);
-S.warga=w;S.trx=t;if(s.data)S.set=s.data;S.users=p.data||[]}
+async function load(){const[w,t,s,p,iu,iw]=await Promise.all([all(()=>sb.from(me.role=='warga'?'warga_daftar':'warga').select('*').order('no_rumah')),all(()=>sb.from('transaksi').select('*').order('tanggal',{ascending:false})),sb.from('settings').select('*').eq('id',1).single(),sb.from('profiles').select('*'),all(()=>sb.from('iuran').select('*').order('tanggal',{ascending:false})),all(()=>sb.from('iuran_warga').select('*'))]);
+S.warga=w;S.trx=t;S.iur=iu;S.iw=iw;if(s.data)S.set=s.data;S.users=p.data||[]}
 setInterval(async()=>{if(me&&!$('#m').innerHTML&&page!='set'){await load();render()}},30000);
 
 /* ---------- kerangka ---------- */
 function shell(){const N={dash:['🏠','Beranda'],masuk:['⬇️','Kas Masuk'],keluar:['⬆️','Kas Keluar'],iuran:['🧾','Iuran'],warga:['👥','Warga'],laporan:['📊','Laporan'],set:['⚙️','Atur']};
-const k=isA()?Object.keys(N):me.role=='ketua'?['dash','masuk','keluar','iuran','warga','laporan']:['dash','iuran','laporan'];
-$('#app').innerHTML=`<header><b>💰 Kas ${esc(S.set.nama_rt)}</b> <small style="opacity:.7">v4</small><span><small>${esc(me.username)} · ${me.role}</small> <button class="b s m" onclick="out()">Keluar</button></span></header><nav>${k.map(x=>`<a id=n_${x} onclick="go('${x}')"><b>${N[x][0]}</b>${N[x][1]}</a>`).join('')}</nav><main id=c></main>`}
+const k=isA()?Object.keys(N):me.role=='ketua'?['dash','masuk','keluar','iuran','warga','laporan']:['dash','iuran','warga','laporan'];
+$('#app').innerHTML=`<header><b>💰 Kas ${esc(S.set.nama_rt)}</b> <small style="opacity:.7">v8</small><span><small>${esc(me.username)} · ${me.role}</small> <button class="b s m" onclick="out()">Keluar</button></span></header><nav>${k.map(x=>`<a id=n_${x} onclick="go('${x}')"><b>${N[x][0]}</b>${N[x][1]}</a>`).join('')}</nav><main id=c></main>`}
 function go(p){page=p;render()}
 function render(){document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.id=='n_'+page));$('#c').innerHTML=pages[page]();if($('#ch'))drawChart()}
 
-/* ---------- iuran (otomatis) ---------- */
-function irows(){const cur=ym(new Date()),ms=months(S.set.mulai,cur),nom=+S.set.iuran_nominal;
-return S.warga.filter(w=>w.aktif).map(w=>{const p={};S.trx.filter(t=>t.jenis=='masuk'&&t.kategori=='Iuran Bulanan'&&t.warga_id==w.id).forEach(t=>p[t.bulan]=(p[t.bulan]||0)+ +t.nominal);
-let tg=0;const det=ms.map(m=>{const pd=p[m]||0;tg+=Math.max(0,nom-pd);return{m,pd,st:pd>=nom?'Lunas':pd>0?'Sebagian':'Belum'}});
-const c=det[det.length-1];return{w,det,tg,cur:c?c.st:'Lunas',pd:c?c.pd:0}})}
-
 /* ---------- halaman ---------- */
 const pages={dash,masuk:()=>trxPage('masuk'),keluar:()=>trxPage('keluar'),iuran,warga:wargaPage,laporan:lap,set:setPage};
-function dash(){const t=tot(S.trx),ir=irows(),ok=ir.filter(r=>r.cur=='Lunas').length;
+function dash(){const t=tot(S.trx),li=S.iur[0],is=li?iuranStat(li):null;
 return `<div class=cards><div class="card hero"><small>Saldo Kas Saat Ini</small><h3>${rp(t.m-t.k)}</h3></div>
 <div class=card><small>Total Pemasukan</small><h3 class=in>${rp(t.m)}</h3></div><div class=card><small>Total Pengeluaran</small><h3 class=out>${rp(t.k)}</h3></div>
-${me.role=='warga'?'':`<div class=card><small>Jumlah Warga</small><h3>${S.warga.filter(w=>w.aktif).length}</h3></div><div class=card><small>Sudah Bayar Iuran (bulan ini)</small><h3 class=in>${ok}</h3></div><div class=card><small>Belum Bayar</small><h3 class=out>${ir.length-ok}</h3></div>`}</div>
-<div class="card mt"><b>Pemasukan vs Pengeluaran (6 bulan)</b><canvas id=ch height=170></canvas></div>${me.role=='warga'?'<div class=mt>'+iuran()+'</div>':''}`}
+${me.role=='warga'?'':`<div class=card><small>Jumlah Warga</small><h3>${S.warga.filter(w=>w.aktif).length}</h3></div>`}${is?`<div class=card><small>Sudah Bayar · ${esc(li.judul)}</small><h3 class=in>${is.ok}</h3></div><div class=card><small>Belum Bayar · ${esc(li.judul)}</small><h3 class=out>${is.n-is.ok}</h3></div>`:''}</div>
+<div class="card mt"><b>Pemasukan vs Pengeluaran (6 bulan)</b><canvas id=ch height=170></canvas></div>${me.role=='warga'&&S.iw.length?'<div class=mt>'+iuran()+'</div>':''}`}
 function drawChart(){const d=new Date(),ls=[];for(let i=5;i>=0;i--)ls.push(ym(new Date(d.getFullYear(),d.getMonth()-i,1)));
 const f=j=>ls.map(m=>S.trx.filter(t=>t.jenis==j&&t.tanggal.startsWith(m)).reduce((a,t)=>a+ +t.nominal,0));
 chart&&chart.destroy();chart=new Chart($('#ch'),{type:'bar',data:{labels:ls,datasets:[{label:'Masuk',data:f('masuk'),backgroundColor:'#16a34a'},{label:'Keluar',data:f('keluar'),backgroundColor:'#9ca3af'}]},options:{responsive:true}})}
@@ -109,24 +103,36 @@ function trxPage(j){const l=S.trx.filter(t=>t.jenis==j).slice(0,150),c=j=='masuk
 return `<div class=hd><h2>Kas ${j=='masuk'?'Masuk':'Keluar'}</h2>${isA()?`<button class=b onclick="tForm('${j}')">+ Tambah</button>`:''}</div><div class=card>${l.map(t=>`<div class=row><div><b>${esc(t.kategori)}</b> <small>${t.tanggal}${t.bulan?' · iuran '+t.bulan:''}</small><br><small>${esc(t.pihak||'')} ${esc(t.keterangan||'')} ${t.bukti_url?`<a href="${esc(t.bukti_url)}" target=_blank>📎 bukti</a>`:''}</small></div><div style="text-align:right"><b class=${c}>${rp(t.nominal)}</b>${isA()?`<br><button class="b s m" onclick="tForm('${j}','${t.id}')">Edit</button> <button class="b r m" onclick="tDel('${t.id}')">Hapus</button>`:''}</div></div>`).join('')||'<p>Belum ada transaksi.</p>'}</div>`}
 function tForm(j,id,pre){const t=S.trx.find(x=>x.id==id)||pre||{},ks=j=='masuk'?KI:KO,kat=t.kategori||ks[0];
 modal(`<h3>${id?'Edit':'Tambah'} Kas ${j}</h3><form onsubmit="tSave(event,'${j}','${id||''}')"><label>Tanggal<input type=date name=tanggal value="${t.tanggal||ymd(new Date())}" required></label>
-<label>Kategori<select name=kategori onchange="$('#bl').style.display=this.value=='Iuran Bulanan'&&'${j}'=='masuk'?'':'none'">${opts(ks,kat)}</select></label>
+<label>Kategori<select name=kategori>${opts(ks,kat)}</select></label>
 ${j=='masuk'?`<label>Warga<select name=warga_id><option value="">— Sumber lain —</option>${S.warga.map(w=>`<option value=${w.id} ${w.id==t.warga_id?'selected':''}>${esc(w.no_rumah)} · ${esc(w.nama)}</option>`).join('')}</select></label>`:''}
 <label>${j=='masuk'?'Sumber (jika bukan warga)':'Penerima uang'}<input name=pihak value="${esc(t.pihak)}"></label>
-<div id=bl style="display:${kat=='Iuran Bulanan'&&j=='masuk'?'':'none'}"><label>Iuran untuk bulan<input type=month name=bulan value="${t.bulan||ym(new Date())}"></label></div>
 <label>Nominal (Rp)<input type=number name=nominal min=1 value="${t.nominal||''}" required inputmode=numeric></label><label>Keterangan<input name=keterangan value="${esc(t.keterangan)}"></label>
 <label>Upload bukti (foto/PDF)<input type=file name=bukti accept="image/*,.pdf"></label><button class=b>Simpan</button> <button type=button class="b s" onclick="modal()">Batal</button></form>`)}
-async function tSave(e,j,id){e.preventDefault();const f=new FormData(e.target),wid=f.get('warga_id')||null,iu=j=='masuk'&&f.get('kategori')=='Iuran Bulanan';
-if(iu&&!wid)return toast('Iuran bulanan harus memilih warga');
-const r={jenis:j,tanggal:f.get('tanggal'),kategori:f.get('kategori'),nominal:+f.get('nominal'),keterangan:f.get('keterangan'),warga_id:wid,pihak:wid?nm(wid):f.get('pihak'),bulan:iu?f.get('bulan'):null},file=f.get('bukti');
+async function tSave(e,j,id){e.preventDefault();const f=new FormData(e.target),wid=f.get('warga_id')||null;
+const r={jenis:j,tanggal:f.get('tanggal'),kategori:f.get('kategori'),nominal:+f.get('nominal'),keterangan:f.get('keterangan'),warga_id:wid,pihak:wid?nm(wid):f.get('pihak'),bulan:null},file=f.get('bukti');
 if(file&&file.size){const p=crypto.randomUUID()+'.'+(file.name.split('.').pop()||'bin'),u=await sb.storage.from('bukti').upload(p,file);if(u.error)return toast(u.error.message);r.bukti_url=sb.storage.from('bukti').getPublicUrl(p).data.publicUrl}
 const{error}=await(id?sb.from('transaksi').update(r).eq('id',id):sb.from('transaksi').insert(r));if(error)return toast(error.message);modal();await load();render();toast('Tersimpan')}
-async function tDel(id){if(!confirm('Hapus transaksi ini?'))return;const{error}=await sb.from('transaksi').delete().eq('id',id);if(error)return toast(error.message);await load();render()}
+async function tDel(id){if(!confirm('Hapus transaksi ini?'))return;await sb.from('iuran_warga').update({lunas:false,trx_id:null}).eq('trx_id',id);const{error}=await sb.from('transaksi').delete().eq('id',id);if(error)return toast(error.message);await load();render()}
 
-function iuran(){const ir=irows(),tg=ir.reduce((a,r)=>a+r.tg,0);
-return `<div class=hd><h2>Iuran Warga</h2></div><div class="card" style="margin-bottom:10px"><small>Iuran per bulan: <b>${rp(S.set.iuran_nominal)}</b> · Total tunggakan: <b class=out>${rp(tg)}</b></small></div><div class=card>${ir.map(r=>`<div class=row><div><b>${esc(r.w.no_rumah)} · ${esc(r.w.nama)}</b> <span class="tag ${r.cur}">${r.cur=='Lunas'?'Lunas':r.cur}</span><br><small>Tunggakan: ${rp(r.tg)}</small></div><span><button class="b s m" onclick="hist('${r.w.id}')">Riwayat</button>${isA()?` <button class="b m" onclick="pay('${r.w.id}')">Bayar</button>`:''}</span></div>`).join('')||'<p>Belum ada data.</p>'}</div>`}
-function hist(id){const r=irows().find(x=>x.w.id==id);modal(`<h3>Riwayat ${esc(r.w.nama)}</h3><table><tr><th>Bulan<th>Dibayar<th>Status</tr>${r.det.slice().reverse().map(d=>`<tr><td>${d.m}<td>${rp(d.pd)}<td><span class="tag ${d.st}">${d.st}</span></tr>`).join('')}</table><p>Total tunggakan: <b class=out>${rp(r.tg)}</b></p><button class="b s" onclick="modal()">Tutup</button>`)}
-function pay(id){const r=irows().find(x=>x.w.id==id),o=r.det.find(d=>d.st!='Lunas')||r.det[r.det.length-1]||{m:ym(new Date()),pd:0};
-tForm('masuk',null,{kategori:'Iuran Bulanan',warga_id:id,bulan:o.m,nominal:Math.max(0,+S.set.iuran_nominal-o.pd)||S.set.iuran_nominal})}
+function iuranStat(i){const r=S.iw.filter(x=>x.iuran_id==i.id),l=r.filter(x=>x.lunas);return{r,n:r.length,ok:l.length,sum:l.reduce((a,x)=>a+ +x.nominal,0)}}
+function iuran(){const A=isA(),l=S.iur.map(i=>[i,iuranStat(i)]).filter(([i,t])=>me.role!='warga'||t.n);
+return `<div class=hd><h2>Iuran Warga</h2>${A?`<button class=b onclick="iForm()">+ Buat Iuran</button>`:''}</div>`+(l.map(([i,t])=>{const m=me.warga_id&&t.r.find(x=>x.warga_id==me.warga_id);return `<div class=card style="margin-bottom:10px"><div class=row style="border:0"><div><b>${esc(i.judul)}</b>${m?` <span class="tag ${m.lunas?'Lunas':'Belum'}">${m.lunas?'Lunas':'Belum bayar'}</span>`:''}<br><small>${i.tanggal} · ${rp(i.nominal)} per warga</small><br><small>${t.ok} dari ${t.n} lunas · terkumpul <b class=in>${rp(t.sum)}</b></small></div><span><button class="b s m" onclick="iDetail('${i.id}')">Lihat</button>${A?` <button class="b r m" onclick="iDel('${i.id}')">Hapus</button>`:''}</span></div></div>`}).join('')||`<div class=card><p>Belum ada iuran.${A?' Klik "+ Buat Iuran" saat ada iuran baru.':''}</p></div>`)}
+function iForm(){modal(`<h3>Buat Iuran Baru</h3><form onsubmit="iSave(event)"><label>Nama iuran<input name=judul placeholder="mis. Iuran 17 Agustus" required></label><label>Nominal per warga (Rp)<input type=number name=nominal min=0 required inputmode=numeric></label><label>Tanggal<input type=date name=tanggal value="${ymd(new Date())}"></label><label>Dikenakan kepada <a href=# onclick="const c=[...document.querySelectorAll('.ck')],a=c.every(x=>x.checked);c.forEach(x=>x.checked=!a);return false">(pilih semua / kosongkan)</a></label><div style="max-height:200px;overflow:auto;border:1px solid #d1d5db;border-radius:8px;padding:6px;margin-bottom:10px">${S.warga.filter(w=>w.aktif).map(w=>`<label style="display:flex;gap:8px;align-items:center;color:#1f2937"><input type=checkbox class=ck value=${w.id} checked style="width:auto;margin:0">${esc(w.no_rumah)} · ${esc(w.nama)}</label>`).join('')}</div><button class=b>Buat</button> <button type=button class="b s" onclick="modal()">Batal</button></form>`)}
+async function iSave(e){e.preventDefault();const f=new FormData(e.target),ids=[...document.querySelectorAll('.ck:checked')].map(c=>c.value);if(!ids.length)return toast('Pilih minimal satu warga');
+const{data:i,error}=await sb.from('iuran').insert({judul:f.get('judul'),nominal:+f.get('nominal'),tanggal:f.get('tanggal')}).select().single();if(error)return toast(error.message);
+const{error:e2}=await sb.from('iuran_warga').insert(ids.map(w=>{const x=S.warga.find(y=>y.id==w)||{};return{iuran_id:i.id,warga_id:w,nominal:+f.get('nominal'),nama:x.nama,no_rumah:x.no_rumah}}));if(e2){await sb.from('iuran').delete().eq('id',i.id);return toast(e2.message)}
+modal();await load();render();toast('Iuran dibuat')}
+function iDetail(id){const i=S.iur.find(x=>x.id==id),t=iuranStat(i),A=isA(),rs=t.r.map(r=>({r,w:S.warga.find(x=>x.id==r.warga_id)||{no_rumah:r.no_rumah,nama:r.nama}})).sort((a,b)=>(a.r.lunas-b.r.lunas)||String(a.w.no_rumah).localeCompare(String(b.w.no_rumah)));
+modal(`<h3>${esc(i.judul)}</h3><p><small>${t.ok} dari ${t.n} lunas · terkumpul ${rp(t.sum)}</small></p>${rs.map(({r,w})=>`<div class=row><div><b>${esc(w.no_rumah)} · ${esc(w.nama)}</b><br><small>${rp(r.nominal)}</small></div><span><span class="tag ${r.lunas?'Lunas':'Belum'}">${r.lunas?'Lunas':'Belum'}</span>${A?` <button class="b ${r.lunas?'s':''} m" onclick="togL('${r.id}','${id}')">${r.lunas?'Batalkan':'Tandai Lunas'}</button>`:''}</span></div>`).join('')}<button class="b s mt" onclick="modal()">Tutup</button>`)}
+async function togL(rid,id){const r=S.iw.find(x=>x.id==rid),w=S.warga.find(x=>x.id==r.warga_id),i=S.iur.find(x=>x.id==r.iuran_id);
+if(r.lunas){if(!confirm('Batalkan status lunas? Pemasukan kas dari pembayaran ini ikut dihapus.'))return;
+if(r.trx_id){const e=(await sb.from('transaksi').delete().eq('id',r.trx_id)).error;if(e)return toast(e.message)}
+const{error}=await sb.from('iuran_warga').update({lunas:false,trx_id:null}).eq('id',rid);if(error)return toast(error.message)}
+else{const v=prompt('Jumlah yang dibayar (Rp)',r.nominal);if(v===null)return;const n=Number(String(v).replace(/\D/g,''));if(!n)return toast('Nominal tidak valid');
+const{data:t,error:e}=await sb.from('transaksi').insert({jenis:'masuk',tanggal:ymd(new Date()),kategori:'Iuran',warga_id:r.warga_id,pihak:w?w.nama:'',nominal:n,keterangan:i.judul}).select().single();if(e)return toast(e.message);
+const{error}=await sb.from('iuran_warga').update({lunas:true,nominal:n,trx_id:t.id}).eq('id',rid);if(error){await sb.from('transaksi').delete().eq('id',t.id);return toast(error.message)}}
+await load();render();iDetail(id)}
+async function iDel(id){if(!confirm('Hapus iuran ini beserta daftar statusnya? Pemasukan yang sudah tercatat di kas tetap ada.'))return;const{error}=await sb.from('iuran').delete().eq('id',id);if(error)return toast(error.message);await load();render()}
 
 function lap(){const L=S.lap=S.lap||{t:'bulanan',v:ym(new Date())},v=L.v;
 const rows=S.trx.filter(t=>L.t=='harian'?t.tanggal==v:t.tanggal.startsWith(v)).sort((a,b)=>a.tanggal<b.tanggal?-1:1),
@@ -135,7 +141,7 @@ return `<div class="hd np"><h2>Laporan</h2><span><button class="b m" onclick="xl
 <div class="np" style="display:flex;gap:8px"><select onchange="setLap(this.value)"><option value=harian ${L.t=='harian'?'selected':''}>Harian</option><option value=bulanan ${L.t=='bulanan'?'selected':''}>Bulanan</option><option value=tahunan ${L.t=='tahunan'?'selected':''}>Tahunan</option></select>
 <input type=${L.t=='harian'?'date':L.t=='bulanan'?'month':'number'} value="${v}" onchange="S.lap.v=this.value;render()"></div>
 <div class=card><h3>Laporan Kas ${esc(S.set.nama_rt)} — ${v}</h3><p>Saldo awal: <b>${rp(S.aw)}</b><br>Pemasukan: <b class=in>${rp(p.m)}</b><br>Pengeluaran: <b class=out>${rp(p.k)}</b><br>Saldo akhir: <b>${rp(S.aw+p.m-p.k)}</b></p>
-<div style="overflow-x:auto"><table><tr><th>Tgl<th>Kategori<th>Pihak/Ket<th>Masuk<th>Keluar</tr>${rows.map(t=>`<tr><td>${t.tanggal}<td>${esc(t.kategori)}<td>${esc(t.pihak||'')} ${esc(t.keterangan||'')}<td class=in>${t.jenis=='masuk'?rp(t.nominal):''}<td class=out>${t.jenis=='keluar'?rp(t.nominal):''}</tr>`).join('')||'<tr><td colspan=5>Tidak ada transaksi.</tr>'}</table></div></div>`}
+<div style="overflow-x:auto"><table><tr><th>Tgl<th>Kategori<th>Pihak<th>Keterangan<th>Masuk<th>Keluar</tr>${rows.map(t=>`<tr><td>${t.tanggal}<td>${esc(t.kategori)}<td>${esc(t.pihak||'')}<td>${esc(t.keterangan||'')}<td class=in>${t.jenis=='masuk'?rp(t.nominal):''}<td class=out>${t.jenis=='keluar'?rp(t.nominal):''}</tr>`).join('')||'<tr><td colspan=6>Tidak ada transaksi.</tr>'}</table></div></div>`}
 function setLap(t){const d=new Date();S.lap={t,v:t=='harian'?ymd(d):t=='bulanan'?ym(d):String(d.getFullYear())};render()}
 function xl(){const L=S.lap,a=[['Laporan Kas '+S.set.nama_rt,L.t,L.v],['Saldo Awal',S.aw],[],['Tanggal','Jenis','Kategori','Pihak','Keterangan','Masuk','Keluar']];
 S.rows.forEach(t=>a.push([t.tanggal,t.jenis,t.kategori,t.pihak||'',t.keterangan||'',t.jenis=='masuk'?+t.nominal:'',t.jenis=='keluar'?+t.nominal:'']));
@@ -143,11 +149,11 @@ const p=tot(S.rows);a.push([],['Total Masuk',p.m],['Total Keluar',p.k],['Saldo A
 const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(a),'Laporan');XLSX.writeFile(wb,'laporan-kas-'+L.v+'.xlsx')}
 
 function setPage(){const s=S.set;
-return `<h2>Pengaturan</h2><div class=card><form onsubmit="setSave(event)"><label>Nama RT<input name=nama_rt value="${esc(s.nama_rt)}"></label><label>Nominal iuran per bulan (Rp)<input type=number name=iuran_nominal value="${s.iuran_nominal}"></label><label>Tagihan dimulai dari bulan<input type=month name=mulai value="${s.mulai}"></label><button class=b>Simpan</button></form></div>
+return `<h2>Pengaturan</h2><div class=card><form onsubmit="setSave(event)"><label>Nama RT<input name=nama_rt value="${esc(s.nama_rt)}"></label><button class=b>Simpan</button></form></div>
 <h3 class=mt>Pengguna</h3><div class=card>${S.users.map(u=>`<div class=row><b>${esc(u.username)}</b><span style="display:flex;gap:4px"><select onchange="upU('${u.id}','role',this.value)">${['admin','ketua','warga'].map(r=>`<option ${r==u.role?'selected':''}>${r}</option>`).join('')}</select><select onchange="upU('${u.id}','warga_id',this.value||null)"><option value="">(tanpa warga)</option>${S.warga.map(w=>`<option value=${w.id} ${w.id==u.warga_id?'selected':''}>${esc(w.no_rumah)} ${esc(w.nama)}</option>`).join('')}</select></span></div>`).join('')}
 <hr><b>Buat akun baru</b><form onsubmit="addU(event)"><input name=u placeholder=username required><input name=p placeholder="password (min. 6)" required minlength=6><select name=r><option>warga</option><option>ketua</option><option>admin</option></select><select name=w><option value="">(tanpa warga)</option>${S.warga.map(w=>`<option value=${w.id}>${esc(w.no_rumah)} ${esc(w.nama)}</option>`).join('')}</select><button class=b>Buat akun</button></form></div>
 <h3 class=mt>Backup &amp; Pemulihan</h3><div class=card><button class=b onclick="backup()">⬇️ Unduh Backup</button><p><label>Pulihkan dari file backup<input type=file accept=.json onchange="restore(event)"></label></p></div>`}
-async function setSave(e){e.preventDefault();const f=Object.fromEntries(new FormData(e.target));f.id=1;f.iuran_nominal=+f.iuran_nominal;const{error}=await sb.from('settings').upsert(f);if(error)return toast(error.message);await load();shell();render();toast('Tersimpan')}
+async function setSave(e){e.preventDefault();const f=Object.fromEntries(new FormData(e.target));f.id=1;const{error}=await sb.from('settings').upsert(f);if(error)return toast(error.message);await load();shell();render();toast('Tersimpan')}
 async function upU(id,k,v){const{error}=await sb.from('profiles').update({[k]:v}).eq('id',id);toast(error?error.message:'Diperbarui');await load()}
 async function addU(e){e.preventDefault();const f=Object.fromEntries(new FormData(e.target)),u=f.u.trim().toLowerCase();if(!/^[a-z0-9._-]+$/.test(u))return toast('Username: huruf/angka tanpa spasi');
 const c2=supabase.createClient(cfg.url,cfg.key,{auth:{persistSession:false,autoRefreshToken:false}}),{data,error}=await c2.auth.signUp({email:u+'@kasrt.app',password:f.p,options:{data:{username:u}}});
